@@ -8,6 +8,7 @@ package jsonschema
 
 import (
 	"encoding/json"
+	"github.com/iancoleman/orderedmap"
 	"net"
 	"net/url"
 	"reflect"
@@ -50,7 +51,7 @@ type Type struct {
 	MaxProperties        int              `json:"maxProperties,omitempty"`        // section 5.13
 	MinProperties        int              `json:"minProperties,omitempty"`        // section 5.14
 	Required             []string         `json:"required,omitempty"`             // section 5.15
-	Properties           map[string]*Type `json:"properties,omitempty"`           // section 5.16
+	Properties           Definitions      `json:"properties,omitempty"`           // section 5.16
 	PatternProperties    map[string]*Type `json:"patternProperties,omitempty"`    // section 5.17
 	AdditionalProperties json.RawMessage  `json:"additionalProperties,omitempty"` // section 5.18
 	Dependencies         map[string]*Type `json:"dependencies,omitempty"`         // section 5.19
@@ -108,12 +109,12 @@ func (r *Reflector) Reflect(v interface{}) *Schema {
 
 // ReflectFromType generates root schema
 func (r *Reflector) ReflectFromType(t reflect.Type) *Schema {
-	definitions := Definitions{}
+	definitions := orderedmap.New()
 	if r.ExpandedStruct {
 		st := &Type{
 			Version:              Version,
 			Type:                 "object",
-			Properties:           map[string]*Type{},
+			Properties:           orderedmap.New(),
 			AdditionalProperties: []byte("false"),
 		}
 		if r.AllowAdditionalProperties {
@@ -121,7 +122,7 @@ func (r *Reflector) ReflectFromType(t reflect.Type) *Schema {
 		}
 		r.reflectStructFields(st, definitions, t)
 		r.reflectStruct(definitions, t)
-		delete(definitions, t.Name())
+		definitions.Delete(t.Name())
 		return &Schema{Type: st, Definitions: definitions}
 	}
 
@@ -135,7 +136,7 @@ func (r *Reflector) ReflectFromType(t reflect.Type) *Schema {
 // Definitions hold schema definitions.
 // http://json-schema.org/latest/json-schema-validation.html#rfc.section.5.26
 // RFC draft-wright-json-schema-validation-00, section 5.26
-type Definitions map[string]*Type
+type Definitions = *orderedmap.OrderedMap
 
 // Available Go defined types for JSON Schema Validation.
 // RFC draft-wright-json-schema-validation-00, section 7.3
@@ -157,7 +158,7 @@ var protoEnumType = reflect.TypeOf((*protoEnum)(nil)).Elem()
 
 func (r *Reflector) reflectTypeToSchema(definitions Definitions, t reflect.Type) *Type {
 	// Already added to definitions?
-	if _, ok := definitions[t.Name()]; ok {
+	if _, ok := definitions.Get(t.Name()); ok {
 		return &Type{Ref: "#/definitions/" + t.Name()}
 	}
 
@@ -247,13 +248,13 @@ func (r *Reflector) reflectTypeToSchema(definitions Definitions, t reflect.Type)
 func (r *Reflector) reflectStruct(definitions Definitions, t reflect.Type) *Type {
 	st := &Type{
 		Type:                 "object",
-		Properties:           map[string]*Type{},
+		Properties:           orderedmap.New(),
 		AdditionalProperties: []byte("false"),
 	}
 	if r.AllowAdditionalProperties {
 		st.AdditionalProperties = []byte("true")
 	}
-	definitions[t.Name()] = st
+	definitions.Set(t.Name(), st)
 	r.reflectStructFields(st, definitions, t)
 
 	return &Type{
@@ -281,7 +282,7 @@ func (r *Reflector) reflectStructFields(st *Type, definitions Definitions, t ref
 		}
 		property := r.reflectTypeToSchema(definitions, f.Type)
 		property.structKeywordsFromTags(f)
-		st.Properties[name] = property
+		st.Properties.Set(name, property)
 		if required {
 			st.Required = append(st.Required, name)
 		}
@@ -290,6 +291,9 @@ func (r *Reflector) reflectStructFields(st *Type, definitions Definitions, t ref
 
 func (t *Type) structKeywordsFromTags(f reflect.StructField) {
 	tags := strings.Split(f.Tag.Get("jsonschema"), ",")
+
+	t.genericKeywords(tags)
+
 	switch t.Type {
 	case "string":
 		t.stringKeywords(tags)
@@ -299,6 +303,24 @@ func (t *Type) structKeywordsFromTags(f reflect.StructField) {
 		t.numbericKeywords(tags)
 	case "array":
 		t.arrayKeywords(tags)
+	}
+}
+
+// read struct tags for all type keywords
+func (t *Type) genericKeywords(tags []string) {
+	for _, tag := range tags {
+		nameValue := strings.Split(tag, "=")
+		if len(nameValue) == 2 {
+			name, val := nameValue[0], nameValue[1]
+			switch name {
+			case "title":
+				t.Title = val
+			case "description":
+				t.Description = val
+			}
+		} else {
+
+		}
 	}
 }
 
