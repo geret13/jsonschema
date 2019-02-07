@@ -22,6 +22,8 @@ import (
 // RFC draft-wright-json-schema-00, section 6
 var Version = "http://json-schema.org/draft-04/schema#"
 
+type Self struct{}
+
 // Schema is the root schema.
 // RFC draft-wright-json-schema-00, section 4.5
 type Schema struct {
@@ -138,12 +140,13 @@ func (r *Reflector) ReflectFromType(t reflect.Type) *Schema {
 // RFC draft-wright-json-schema-validation-00, section 5.26
 type Definitions = *orderedmap.OrderedMap
 
-// Available Go defined types for JSON Schema Validation.
+// Available Go defined types for JSON Schema Validation.s
 // RFC draft-wright-json-schema-validation-00, section 7.3
 var (
 	timeType = reflect.TypeOf(time.Time{}) // date-time RFC section 7.3.1
 	ipType   = reflect.TypeOf(net.IP{})    // ipv4 and ipv6 RFC section 7.3.4, 7.3.5
 	uriType  = reflect.TypeOf(url.URL{})   // uri RFC section 7.3.6
+	selfType = reflect.TypeOf(Self{})
 )
 
 // Byte slices will be encoded as base64
@@ -282,6 +285,15 @@ func (r *Reflector) reflectStructFields(st *Type, definitions Definitions, t ref
 		}
 		property := r.reflectTypeToSchema(definitions, f.Type)
 		property.structKeywordsFromTags(f)
+
+		if f.Type == selfType {
+			if property.Title != "" {
+				st.Title = property.Title
+			}
+
+			continue
+		}
+
 		st.Properties.Set(name, property)
 		if required {
 			st.Required = append(st.Required, name)
